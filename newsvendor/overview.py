@@ -3,22 +3,23 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from .model import inventory_from_margin
 
 
-def simulated_overview(demand: np.ndarray, mu: float, horizon: int) -> pd.DataFrame:
+def simulated_overview(demand: np.ndarray, forecast: np.ndarray, horizon: int) -> pd.DataFrame:
     """
     Generate overview frame for simulated mode.
 
     Args:
         demand: Array of historical demand values (simulated).
-        mu: Mean demand (the baseline forecast).
+        forecast: Array of forecast values (expected demand, rounded). Length = days + horizon.
         horizon: Number of days to extend forecast beyond history.
 
     Returns:
         DataFrame with columns: x (day number), actual, forecast, is_future.
         - x: day number (0-indexed)
         - actual: simulated demand for history, NaN for forecast horizon
-        - forecast: constant μ across all rows
+        - forecast: seasonal forecast across all rows
         - is_future: True for the last `horizon` rows
     """
     days = len(demand)
@@ -32,7 +33,7 @@ def simulated_overview(demand: np.ndarray, mu: float, horizon: int) -> pd.DataFr
         rows.append({
             "x": i,
             "actual": actual,
-            "forecast": float(mu),
+            "forecast": float(forecast[i]),
             "is_future": is_future
         })
 
@@ -77,17 +78,52 @@ def imported_overview(history: pd.DataFrame, future: pd.DataFrame) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
-def overview_figure(df: pd.DataFrame, x_title: str) -> go.Figure:
+def add_stock(df: pd.DataFrame, margin: float, mode: str = "units") -> pd.DataFrame:
     """
-    Build an overview figure showing historical vs forecast.
+    Add stock level, stockout flag, and waste to overview DataFrame.
 
     Args:
         df: DataFrame from simulated_overview or imported_overview.
+        margin: Safety margin (units or percent).
+        mode: "units" → stock = forecast + margin; "percent" → stock = forecast × (1 + margin/100).
+
+    Returns:
+        DataFrame with added columns: stock, stockout, waste.
+        - stock: Inventory level (forecast + margin).
+        - stockout: Boolean, True if actual > stock (only for history rows).
+        - waste: Excess inventory where stock > actual (only for history rows, NaN for future).
+    """
+    df = df.copy()
+
+    # Calculate stock level
+    df["stock"] = inventory_from_margin(df["forecast"].values, margin, mode)
+
+    # Stockout flag: actual > stock (only for history rows with actual values)
+    df["stockout"] = (df["actual"] > df["stock"]) & (~df["actual"].isna())
+
+    # Waste: stock - actual where stock > actual (zero otherwise)
+    # Only for history rows; NaN for future
+    waste = np.where(
+        ~df["actual"].isna(),
+        np.maximum(0, df["stock"] - df["actual"]),
+        np.nan
+    )
+    df["waste"] = waste
+
+    return df
+
+
+def overview_figure(df: pd.DataFrame, x_title: str) -> go.Figure:
+    """
+    Build an overview figure showing historical vs forecast, stock level, and stockout/waste.
+
+    Args:
+        df: DataFrame from simulated_overview or imported_overview, with columns added by add_stock().
         x_title: Label for the x-axis ("Day" for simulated, "Date" for imported).
 
     Returns:
-        Plotly figure with traces for actual (history) and forecast, shaded forecast window,
-        and divider (if future rows exist).
+        Plotly figure with traces for actual (history), forecast, stock level, stockout markers,
+        waste shading, divider, and forecast window.
     """
     fig = go.Figure()
 
@@ -112,6 +148,57 @@ def overview_figure(df: pd.DataFrame, x_title: str) -> go.Figure:
         line=dict(color="darkorange", width=2, dash="dash"),
         hovertemplate="<b>Forecast</b><br>%{x}<br>%{y:.0f}<extra></extra>"
     ))
+
+    # Stock level trace (across history and future)
+    if "stock" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["x"],
+            y=df["stock"],
+            mode="lines",
+            name="Stock level (forecast + margin)",
+            line=dict(color="green", width=2, dash="dot"),
+            hovertemplate="<b>Stock</b><br>%{x}<br>%{y:.0f}<extra></extra>"
+        ))
+
+        # Waste fill (shaded area where stock > actual, history only)
+        waste_mask = ~df["waste"].isna() & (df["waste"] > 0)
+        if waste_mask.any():
+            # Lower trace: min(actual, stock) for the fill area
+            lower_y = np.minimum(df["actual"], df["stock"])
+            fig.add_trace(go.Scatter(
+                x=df.loc[waste_mask, "x"],
+                y=df.loc[waste_mask, "stock"],
+                mode="lines",
+                name="Waste (excess inventory)",
+                line=dict(color="rgba(0,0,0,0)"),
+                showlegend=True,
+                hovertemplate="<b>Waste</b><br>%{x}<br>%{y:.0f}<extra></extra>"
+            ))
+
+            # Add invisible lower trace for fill
+            fig.add_trace(go.Scatter(
+                x=df.loc[waste_mask, "x"],
+                y=df.loc[waste_mask, "actual"],
+                mode="lines",
+                name="Waste (excess inventory)",
+                line=dict(color="rgba(0,0,0,0)"),
+                showlegend=False,
+                fill="tonexty",
+                fillcolor="rgba(0,200,0,0.2)",
+                hoverinfo="skip"
+            ))
+
+        # Stockout markers (red dots on days with actual > stock)
+        stockout_mask = df["stockout"] == True
+        if stockout_mask.any():
+            fig.add_trace(go.Scatter(
+                x=df.loc[stockout_mask, "x"],
+                y=df.loc[stockout_mask, "actual"],
+                mode="markers",
+                name="Stockout days",
+                marker=dict(size=10, color="red", symbol="x"),
+                hovertemplate="<b>Stockout</b><br>%{x}<br>%{y:.0f}<extra></extra>"
+            ))
 
     # Add divider and shaded window if future rows exist
     if df["is_future"].any():
@@ -142,11 +229,11 @@ def overview_figure(df: pd.DataFrame, x_title: str) -> go.Figure:
         )
 
     fig.update_layout(
-        title="Historical vs Forecast",
+        title="Historical vs Forecast (with Stock Level)",
         xaxis_title=x_title,
         yaxis_title="Units",
         hovermode="x unified",
-        height=350,
+        height=400,
         template="plotly_white"
     )
 

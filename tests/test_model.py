@@ -1,15 +1,58 @@
 import pytest
 import numpy as np
 import pandas as pd
-from newsvendor.model import simulate_demand, simulate, inventory_from_margin
+from newsvendor.model import simulate_demand, simulate, inventory_from_margin, expected_demand
+
+
+class TestExpectedDemand:
+    """Test seasonal expected demand generation."""
+
+    def test_shape(self):
+        """Expected demand array has correct length."""
+        expected = expected_demand(mu=50, seasonality=0, n=100, period=7)
+        assert len(expected) == 100
+
+    def test_amplitude_zero_is_flat(self):
+        """Amplitude 0 gives flat μ line."""
+        expected = expected_demand(mu=50, seasonality=0, n=100, period=7)
+        np.testing.assert_array_almost_equal(expected, np.full(100, 50))
+
+    def test_seasonality_range(self):
+        """Seasonality amplitude correctly expands the range."""
+        expected = expected_demand(mu=100, seasonality=0.2, n=100, period=7)
+        # Range should be [μ*(1-0.2), μ*(1+0.2)] = [80, 120]
+        assert np.min(expected) >= 80
+        assert np.max(expected) <= 120
+        # Min and max should be close to the bounds
+        assert np.min(expected) < 85
+        assert np.max(expected) > 115
+
+    def test_weekly_period(self):
+        """Weekly cycle repeats every 7 days."""
+        expected = expected_demand(mu=50, seasonality=0.2, n=14, period=7)
+        # First 7 days should be (approximately) the same as next 7 days
+        np.testing.assert_array_almost_equal(expected[:7], expected[7:14], decimal=5)
+
+    def test_period_parameter(self):
+        """Custom period parameter works."""
+        expected_p7 = expected_demand(mu=50, seasonality=0.1, n=30, period=7)
+        expected_p14 = expected_demand(mu=50, seasonality=0.1, n=30, period=14)
+        # Different periods should give different patterns
+        assert not np.allclose(expected_p7, expected_p14)
 
 
 class TestSimulateDemand:
     """Test demand generation."""
 
-    def test_shape(self):
-        """Demand array has correct length."""
+    def test_shape_scalar_mu(self):
+        """Demand array has correct length with scalar mu."""
         demand = simulate_demand(mu=50, sigma=10, days=100, seed=42)
+        assert len(demand) == 100
+
+    def test_shape_array_mu(self):
+        """Demand array has correct length with array mu (expected)."""
+        mu_array = expected_demand(mu=50, seasonality=0.2, n=100, period=7)
+        demand = simulate_demand(mu=mu_array, sigma=10, days=100, seed=42)
         assert len(demand) == 100
 
     def test_nonnegative(self):
@@ -28,6 +71,21 @@ class TestSimulateDemand:
         d1 = simulate_demand(mu=50, sigma=10, days=100, seed=123)
         d2 = simulate_demand(mu=50, sigma=10, days=100, seed=123)
         np.testing.assert_array_equal(d1, d2)
+
+    def test_array_mu_with_zero_sigma(self):
+        """Array mu with sigma=0 rounds the expected values."""
+        mu_array = np.array([2.3, 2.6, 3.1, 3.8])
+        # With sigma=0, demand should equal rint(mu_array)
+        demand = simulate_demand(mu=mu_array, sigma=0, days=4, seed=42)
+        expected = np.rint(mu_array).astype(int)
+        np.testing.assert_array_equal(demand, expected)
+
+    def test_array_mu_follows_expected(self):
+        """Actual demand follows expected mean for large sample."""
+        expected = expected_demand(mu=50, seasonality=0.1, n=1000, period=7)
+        demand = simulate_demand(mu=expected, sigma=5, days=1000, seed=42)
+        # With finite sigma, mean(demand) ≈ mean(expected)
+        assert abs(np.mean(demand) - np.mean(expected)) < 2  # Loose tolerance for noise
 
 
 class TestSimulate:
@@ -128,6 +186,19 @@ class TestSimulate:
         assert result.loc[0, "shortfall"] == 2
         assert result.loc[1, "shortfall"] == 1
         assert result.loc[2, "shortfall"] == 0
+
+    def test_margin_zero_rule(self):
+        """At margin=0 (inventory=forecast), stockout iff actual > forecast and excess > 0 iff forecast > actual."""
+        # Create demand and forecast where forecast = demand rounded
+        expected = np.array([10.5, 20.3, 15.8, 8.2])
+        demand = np.rint(expected).astype(int)  # demand = forecast exactly when sigma=0
+        result = simulate(demand=demand, inventory=demand, c_under=1.0, c_over=0.5)
+
+        # With inventory = demand, no shortfall or excess
+        np.testing.assert_array_equal(result["shortfall"], np.zeros(4))
+        np.testing.assert_array_equal(result["excess"], np.zeros(4))
+        np.testing.assert_array_equal(result["stockout"], np.zeros(4, dtype=bool))
+        np.testing.assert_array_equal(result["total_loss"], np.zeros(4))
 
 
 class TestInventoryFromMargin:

@@ -3,6 +3,24 @@ import numpy as np
 import pandas as pd
 
 
+def expected_demand(mu: float, seasonality: float, n: int, period: int = 7) -> np.ndarray:
+    """
+    Generate seasonal expected demand using a sinusoidal curve.
+
+    Args:
+        mu: Base mean demand.
+        seasonality: Amplitude as a fraction of mu (0 = flat, 0.2 = ±20% variation).
+        n: Number of periods to generate.
+        period: Cycle length in days (default 7 for weekly).
+
+    Returns:
+        Array of expected demand values with seasonal pattern.
+    """
+    t = np.arange(n)
+    expected = mu * (1 + seasonality * np.sin(2 * np.pi * t / period))
+    return expected
+
+
 def inventory_from_margin(baseline, margin: float, mode: str = "units"):
     """
     Calculate inventory from baseline and margin.
@@ -24,23 +42,36 @@ def inventory_from_margin(baseline, margin: float, mode: str = "units"):
         raise ValueError(f"mode must be 'units' or 'percent', got {mode}")
 
 
-def simulate_demand(mu: float, sigma: float, days: int, seed: int) -> np.ndarray:
+def simulate_demand(mu, sigma: float, days: int, seed: int) -> np.ndarray:
     """
     Generate daily demand from a normal distribution.
 
     Args:
-        mu: Mean demand.
-        sigma: Standard deviation.
+        mu: Mean demand. Can be:
+            - Scalar (float): constant mean for all days.
+            - Array: per-day expected mean (e.g., from expected_demand).
+        sigma: Standard deviation (forecast error spread).
         days: Number of days to simulate.
         seed: Random seed for reproducibility.
 
     Returns:
-        Array of demand values (non-negative integers).
+        Array of demand values (non-negative integers, rounded with rint).
     """
     rng = np.random.RandomState(seed)
-    demand = rng.normal(mu, sigma, days)
+
+    # Broadcast mu to array if scalar
+    if isinstance(mu, (int, float)):
+        mu_array = np.full(days, mu)
+    else:
+        mu_array = np.asarray(mu)
+
+    # Generate noise
+    noise = rng.normal(0, sigma, days)
+
+    # Demand = expected + noise, clipped and rounded
+    demand = mu_array + noise
     demand = np.maximum(demand, 0)  # Clip at 0
-    return demand.astype(int)
+    return np.rint(demand).astype(int)
 
 
 def simulate(

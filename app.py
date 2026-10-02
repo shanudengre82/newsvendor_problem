@@ -5,10 +5,10 @@ import plotly.express as px
 import numpy as np
 import pandas as pd
 import io
-from newsvendor.model import simulate_demand, simulate, inventory_from_margin
+from newsvendor.model import simulate_demand, simulate, inventory_from_margin, expected_demand
 from newsvendor.sweep import sweep_margins, best_margin, recommend
 from newsvendor.data import load_daily_csv, DataFormatError, template_csv
-from newsvendor.overview import simulated_overview, imported_overview, overview_figure
+from newsvendor.overview import simulated_overview, imported_overview, overview_figure, add_stock
 
 
 # Page config
@@ -36,6 +36,7 @@ data_source = st.sidebar.radio("Choose data source:", ["Simulated", "Import CSV"
 history = None
 future = None
 mode = "units"
+forecast_all = None
 
 if data_source == "Simulated":
     # Simulated mode
@@ -43,18 +44,23 @@ if data_source == "Simulated":
 
     mu = st.sidebar.slider("Mean demand (μ)", min_value=10, max_value=200, value=50, step=5)
     sigma = st.sidebar.slider(
-        "Demand std dev (σ)", min_value=1, max_value=50, value=10, step=1
+        "Demand std dev (σ) [forecast error spread]", min_value=1, max_value=50, value=10, step=1
     )
     days = st.sidebar.slider("Days to simulate", min_value=50, max_value=365, value=100, step=10)
     seed = st.sidebar.number_input("Random seed", value=42, step=1)
+    seasonality = st.sidebar.slider(
+        "Forecast seasonality (% of μ)", min_value=0, max_value=50, value=20, step=5
+    )
     horizon = st.sidebar.slider("Forecast horizon (days)", min_value=0, max_value=60, value=14, step=1)
 
-    # Generate demand
-    demand = simulate_demand(mu=mu, sigma=sigma, days=days, seed=seed)
-    baseline = np.full(days, mu)
+    # Generate expected demand (seasonal) and actual demand
+    expected = expected_demand(mu=mu, seasonality=seasonality / 100.0, n=days + horizon, period=7)
+    demand = simulate_demand(mu=expected[:days], sigma=sigma, days=days, seed=seed)
+    forecast_all = np.rint(expected).astype(int)  # Forecast = rounded expected
+    baseline = forecast_all[:days]
 
     # Generate overview frame for simulated mode
-    overview_df = simulated_overview(demand, mu, horizon)
+    overview_df = simulated_overview(demand, forecast=forecast_all, horizon=horizon)
 
 else:  # Import CSV
     st.sidebar.header("📤 Upload Data")
@@ -86,6 +92,7 @@ else:  # Import CSV
 
             # Generate overview frame for imported mode
             overview_df = imported_overview(history, future)
+            forecast_all = pd.concat([history["forecast"], future["forecast"]], ignore_index=True).values
         except DataFormatError as e:
             st.sidebar.error(f"❌ Invalid CSV format:\n\n{str(e)}")
             st.stop()
@@ -137,10 +144,11 @@ tab1, tab2 = st.tabs(["📊 One Margin", "🎯 Find Best Margin"])
 with tab1:
     st.header("Single Margin Analysis")
 
-    # Historical vs forecast overview
-    st.subheader("Historical vs Forecast")
+    # Historical vs forecast overview (with stock level and stockouts)
+    st.subheader("Historical vs Forecast (with Stock Level)")
     x_title = "Day" if data_source == "Simulated" else "Date"
-    fig_overview = overview_figure(overview_df, x_title)
+    overview_with_stock = add_stock(overview_df, margin=margin, mode=mode)
+    fig_overview = overview_figure(overview_with_stock, x_title)
     st.plotly_chart(fig_overview, width="stretch")
 
     st.divider()
