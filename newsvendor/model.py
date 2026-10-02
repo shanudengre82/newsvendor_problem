@@ -3,6 +3,27 @@ import numpy as np
 import pandas as pd
 
 
+def inventory_from_margin(baseline, margin: float, mode: str = "units"):
+    """
+    Calculate inventory from baseline and margin.
+
+    Args:
+        baseline: Scalar or array of baseline (mean/forecast) values.
+        margin: Safety margin (units or fraction depending on mode).
+        mode: "units" → inventory = baseline + margin
+              "percent" → inventory = baseline × (1 + margin/100)
+
+    Returns:
+        Inventory as scalar or array (same shape as baseline).
+    """
+    if mode == "units":
+        return baseline + margin
+    elif mode == "percent":
+        return baseline * (1 + margin / 100.0)
+    else:
+        raise ValueError(f"mode must be 'units' or 'percent', got {mode}")
+
+
 def simulate_demand(mu: float, sigma: float, days: int, seed: int) -> np.ndarray:
     """
     Generate daily demand from a normal distribution.
@@ -24,7 +45,7 @@ def simulate_demand(mu: float, sigma: float, days: int, seed: int) -> np.ndarray
 
 def simulate(
     demand: np.ndarray,
-    inventory: float,
+    inventory,
     c_under: float,
     c_over: float
 ) -> pd.DataFrame:
@@ -33,7 +54,9 @@ def simulate(
 
     Args:
         demand: Array of daily demands.
-        inventory: Daily inventory level (constant for this run).
+        inventory: Daily inventory level. Can be:
+                   - Scalar (float): constant inventory for all days.
+                   - Array: per-day inventory levels.
         c_under: Underage cost (per unit short, multiplied by streak day).
         c_over: Overage cost (per unit left over).
 
@@ -42,12 +65,19 @@ def simulate(
         stockout, overstock_loss, stockout_loss, total_loss.
     """
     days = len(demand)
+
+    # Broadcast inventory to array if scalar
+    if isinstance(inventory, (int, float)):
+        inventory = np.full(days, inventory)
+    else:
+        inventory = np.asarray(inventory)
+
     results = []
     streak = 0
 
     for day in range(days):
         d = demand[day]
-        inv = inventory
+        inv = float(inventory[day])
 
         # Shortfall and excess
         shortfall = max(0, d - inv)

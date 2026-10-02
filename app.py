@@ -4,8 +4,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import pandas as pd
-from newsvendor.model import simulate_demand, simulate
-from newsvendor.sweep import sweep_margins, best_margin
+import io
+from newsvendor.model import simulate_demand, simulate, inventory_from_margin
+from newsvendor.sweep import sweep_margins, best_margin, recommend
+from newsvendor.data import load_daily_csv, DataFormatError, template_csv
 
 
 # Page config
@@ -25,17 +27,67 @@ st.markdown(
 )
 
 # ============================================================================
-# Sidebar: parameters
+# Sidebar: Data source selection
 # ============================================================================
-st.sidebar.header("📊 Simulation Parameters")
+st.sidebar.header("📁 Data Source")
+data_source = st.sidebar.radio("Choose data source:", ["Simulated", "Import CSV"])
 
-mu = st.sidebar.slider("Mean demand (μ)", min_value=10, max_value=200, value=50, step=5)
-sigma = st.sidebar.slider(
-    "Demand std dev (σ)", min_value=1, max_value=50, value=10, step=1
-)
-days = st.sidebar.slider("Days to simulate", min_value=50, max_value=365, value=100, step=10)
-seed = st.sidebar.number_input("Random seed", value=42, step=1)
+history = None
+future = None
+mode = "units"
 
+if data_source == "Simulated":
+    # Simulated mode
+    st.sidebar.header("📊 Simulation Parameters")
+
+    mu = st.sidebar.slider("Mean demand (μ)", min_value=10, max_value=200, value=50, step=5)
+    sigma = st.sidebar.slider(
+        "Demand std dev (σ)", min_value=1, max_value=50, value=10, step=1
+    )
+    days = st.sidebar.slider("Days to simulate", min_value=50, max_value=365, value=100, step=10)
+    seed = st.sidebar.number_input("Random seed", value=42, step=1)
+
+    # Generate demand
+    demand = simulate_demand(mu=mu, sigma=sigma, days=days, seed=seed)
+    baseline = np.full(days, mu)
+
+else:  # Import CSV
+    st.sidebar.header("📤 Upload Data")
+
+    # Download template button
+    template_text = template_csv()
+    st.sidebar.download_button(
+        label="📋 Download CSV Template",
+        data=template_text,
+        file_name="newsvendor_template.csv",
+        mime="text/csv",
+        help="Download a template to see the required format"
+    )
+
+    # File uploader
+    uploaded_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+
+    if uploaded_file is not None:
+        try:
+            history, future = load_daily_csv(uploaded_file)
+            demand = history["actual"].values.astype(int)
+            baseline = history["forecast"].values
+
+            st.sidebar.success(f"✓ Loaded {len(history)} history + {len(future)} future rows")
+
+            # Mode selector for real data
+            mode = st.sidebar.radio("Margin unit:", ["units", "percent"],
+                                   format_func=lambda x: "Units (forecast + m)" if x == "units" else "Percent (forecast × (1 + m%))")
+        except DataFormatError as e:
+            st.sidebar.error(f"❌ Invalid CSV format:\n\n{str(e)}")
+            st.stop()
+    else:
+        st.sidebar.info("Upload a CSV to get started.")
+        st.stop()
+
+# ============================================================================
+# Sidebar: Costs and margin
+# ============================================================================
 st.sidebar.divider()
 st.sidebar.header("💰 Costs")
 
@@ -49,15 +101,25 @@ c_over = st.sidebar.number_input(
 st.sidebar.divider()
 st.sidebar.header("📈 Margin Selection")
 
+# Adjust slider range based on mode
+if mode == "units":
+    margin_max = 100
+    margin_default = 10
+    margin_label = "Current margin (units)"
+else:
+    margin_max = 50
+    margin_default = 10
+    margin_label = "Current margin (%)"
+
 margin = st.sidebar.slider(
-    "Current margin (units)", min_value=0, max_value=100, value=10, step=1
+    margin_label, min_value=0, max_value=margin_max, value=margin_default, step=1
 )
 
 # ============================================================================
-# Generate demand and simulate
+# Compute single-margin simulation
 # ============================================================================
-demand = simulate_demand(mu=mu, sigma=sigma, days=days, seed=seed)
-inventory = mu + margin
+inventory = inventory_from_margin(baseline, margin, mode=mode)
+sim_result = simulate(demand=demand, inventory=inventory, c_under=c_under, c_over=c_over)
 
 # ============================================================================
 # Tabs
@@ -66,9 +128,6 @@ tab1, tab2 = st.tabs(["📊 One Margin", "🎯 Find Best Margin"])
 
 with tab1:
     st.header("Single Margin Analysis")
-
-    # Run simulation
-    sim_result = simulate(demand=demand, inventory=inventory, c_under=c_under, c_over=c_over)
 
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -110,7 +169,17 @@ with tab1:
         line=dict(color="steelblue", width=2)
     ))
 
-    fig1.add_hline(y=inventory, line_dash="dash", line_color="green", name="Inventory level")
+    # Add inventory line(s) - handle scalar or array
+    if isinstance(inventory, (int, float)):
+        fig1.add_hline(y=inventory, line_dash="dash", line_color="green", name="Inventory level")
+    else:
+        fig1.add_trace(go.Scatter(
+            x=np.arange(len(sim_result)),
+            y=inventory,
+            mode="lines",
+            name="Inventory level",
+            line=dict(color="green", width=2, dash="dash")
+        ))
 
     # Highlight stockout days
     stockout_days = sim_result[sim_result["stockout"]].index
@@ -184,7 +253,10 @@ with tab2:
     # Sweep parameters
     col1, col2 = st.columns(2)
     with col1:
-        max_margin = st.slider("Max margin to sweep", min_value=10, max_value=100, value=50, step=5)
+        if mode == "units":
+            max_margin = st.slider("Max margin to sweep", min_value=10, max_value=100, value=50, step=5)
+        else:
+            max_margin = st.slider("Max margin to sweep (%)", min_value=5, max_value=50, value=25, step=5)
     with col2:
         margin_step = st.slider("Margin step size", min_value=1, max_value=10, value=2, step=1)
 
@@ -193,10 +265,11 @@ with tab2:
     with st.spinner("Computing margin sweep..."):
         sweep_result = sweep_margins(
             demand=demand,
-            mu=mu,
+            mu=baseline,
             margins=margins_to_sweep,
             c_under=c_under,
-            c_over=c_over
+            c_over=c_over,
+            mode=mode
         )
 
     # Best margin
@@ -208,8 +281,8 @@ with tab2:
     with col1:
         st.metric(
             "Best margin (this sweep)",
-            f"{best_margin_value} units",
-            help="Inventory = mean demand + margin"
+            f"{best_margin_value} {'units' if mode == 'units' else '%'}",
+            help="Inventory = forecast + margin" if mode == "units" else "Inventory = forecast × (1 + margin%)"
         )
     with col2:
         st.metric(
@@ -217,6 +290,10 @@ with tab2:
             f"${best_loss:.2f}",
             help="Total loss at optimal margin"
         )
+
+    # Warn if on boundary
+    if best_margin_value == margins_to_sweep[0] or best_margin_value == margins_to_sweep[-1]:
+        st.warning(f"⚠️ Best margin is at the sweep boundary ({best_margin_value}). Consider widening the range.")
 
     st.divider()
 
@@ -261,7 +338,7 @@ with tab2:
 
     fig1.update_layout(
         title="Total Loss vs Margin (Stacked: Overstock + Stockout)",
-        xaxis_title="Margin (units)",
+        xaxis_title=f"Margin ({'units' if mode == 'units' else '%'})",
         yaxis_title="Total Loss ($)",
         hovermode="x unified",
         height=400
@@ -279,7 +356,7 @@ with tab2:
     ))
     fig2.update_layout(
         title="Stockout Rate vs Margin",
-        xaxis_title="Margin (units)",
+        xaxis_title=f"Margin ({'units' if mode == 'units' else '%'})",
         yaxis_title="Stockout rate (%)",
         hovermode="x unified",
         height=350
@@ -297,22 +374,80 @@ with tab2:
     ))
     fig3.update_layout(
         title="Maximum Consecutive Stockout Days vs Margin",
-        xaxis_title="Margin (units)",
+        xaxis_title=f"Margin ({'units' if mode == 'units' else '%'})",
         yaxis_title="Max streak (days)",
         hovermode="x unified",
         height=350
     )
     st.plotly_chart(fig3, use_container_width=True)
 
+    # Recommended inventory section (only for imported data with future rows)
+    if data_source == "Import CSV" and future is not None and len(future) > 0:
+        st.divider()
+        st.header("📋 Recommended Inventory")
+        st.write(f"Using the best margin ({best_margin_value}), here are the recommended stock levels for future days:")
+
+        future_copy = future.copy()
+        rec_df = recommend(future_copy, baseline_col="forecast", margin=best_margin_value, mode=mode)
+
+        # Display as table
+        st.dataframe(rec_df, use_container_width=True)
+
+        # Chart: Forecast vs Recommended
+        fig_rec = go.Figure()
+        fig_rec.add_trace(go.Scatter(
+            x=rec_df["date"],
+            y=rec_df["forecast"],
+            mode="lines+markers",
+            name="Forecast",
+            line=dict(color="blue")
+        ))
+        fig_rec.add_trace(go.Scatter(
+            x=rec_df["date"],
+            y=rec_df["recommended_stock"],
+            mode="lines+markers",
+            name="Recommended stock",
+            line=dict(color="green")
+        ))
+        fig_rec.update_layout(
+            title="Forecast vs Recommended Stock (Future Days)",
+            xaxis_title="Date",
+            yaxis_title="Units",
+            hovermode="x unified",
+            height=350
+        )
+        st.plotly_chart(fig_rec, use_container_width=True)
+
+        # Download CSV
+        csv_buffer = io.StringIO()
+        rec_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        st.download_button(
+            label="📥 Download Recommended Stock (CSV)",
+            data=csv_data,
+            file_name="newsvendor_recommendations.csv",
+            mime="text/csv"
+        )
+
 st.sidebar.divider()
 st.sidebar.markdown(
     """
     **How to use this app:**
 
-    1. Adjust simulation parameters in the sidebar.
-    2. Use the **One Margin** tab to see the impact of a single margin choice.
-    3. Use the **Find Best Margin** tab to optimise across many margins.
-    4. The stockout loss multiplier increases with consecutive stockout days,
-       reflecting customer dissatisfaction.
+    **Simulated Mode:**
+    1. Adjust demand distribution parameters (μ, σ).
+    2. Use the **One Margin** tab to see the impact.
+    3. Use **Find Best Margin** to optimise.
+
+    **Import CSV Mode:**
+    1. Download the template and prepare your data.
+    2. Upload a CSV with columns: date, actual, forecast.
+    3. Blank 'actual' values mark future days.
+    4. Get best margin and future recommendations.
+
+    **Key Insight:**
+    Stockout loss multiplies with consecutive days (customer dissatisfaction),
+    so repeated stockouts are much more costly than isolated ones.
     """
 )

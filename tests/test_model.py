@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import pandas as pd
-from newsvendor.model import simulate_demand, simulate
+from newsvendor.model import simulate_demand, simulate, inventory_from_margin
 
 
 class TestSimulateDemand:
@@ -113,3 +113,54 @@ class TestSimulate:
                     "overstock_loss", "stockout_loss", "total_loss"]
         for col in required:
             assert col in result.columns
+
+    def test_per_day_inventory_array(self):
+        """Per-day inventory array works correctly."""
+        demand = np.array([10, 10, 10])
+        inventory = np.array([8, 9, 11])  # Varying inventory
+        result = simulate(demand=demand, inventory=inventory, c_under=1.0, c_over=0.5)
+
+        assert result.loc[0, "inventory"] == 8
+        assert result.loc[1, "inventory"] == 9
+        assert result.loc[2, "inventory"] == 11
+
+        # Shortfall should vary with inventory
+        assert result.loc[0, "shortfall"] == 2
+        assert result.loc[1, "shortfall"] == 1
+        assert result.loc[2, "shortfall"] == 0
+
+
+class TestInventoryFromMargin:
+    """Test margin to inventory conversion."""
+
+    def test_units_mode_scalar(self):
+        """Units mode with scalar baseline."""
+        inv = inventory_from_margin(baseline=50, margin=10, mode="units")
+        assert inv == 60
+
+    def test_units_mode_array(self):
+        """Units mode with array baseline."""
+        baseline = np.array([50, 60, 70])
+        inv = inventory_from_margin(baseline=baseline, margin=10, mode="units")
+        np.testing.assert_array_equal(inv, np.array([60, 70, 80]))
+
+    def test_percent_mode_scalar(self):
+        """Percent mode with scalar baseline."""
+        inv = inventory_from_margin(baseline=100, margin=10, mode="percent")
+        assert np.isclose(inv, 110)  # 100 * (1 + 10/100)
+
+    def test_percent_mode_array(self):
+        """Percent mode with array baseline."""
+        baseline = np.array([100, 200])
+        inv = inventory_from_margin(baseline=baseline, margin=10, mode="percent")
+        np.testing.assert_array_almost_equal(inv, np.array([110, 220]))
+
+    def test_negative_margin_units(self):
+        """Negative margin is allowed (reduces inventory)."""
+        inv = inventory_from_margin(baseline=50, margin=-10, mode="units")
+        assert inv == 40
+
+    def test_negative_margin_percent(self):
+        """Negative margin in percent mode."""
+        inv = inventory_from_margin(baseline=100, margin=-20, mode="percent")
+        assert inv == 80  # 100 * (1 - 20/100)
