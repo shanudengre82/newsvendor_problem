@@ -77,7 +77,8 @@ Or use the convenience script:
 - `newsvendor/sweep.py` — Margin sweep, best-margin optimisation, future recommendations
 - `app.py` — Streamlit UI: simulated and import modes, margin units vs percent
 - `sample_data/sample_daily.csv` — Example data (120 days history + 14 days future)
-- `tests/` — 47 tests covering all modules (TDD)
+- `newsvendor/overview.py` — Historical vs forecast visualization (simulated and real data modes)
+- `tests/` — 59 tests covering all modules (TDD)
 
 ## How It Works
 
@@ -112,6 +113,7 @@ Sweep across multiple margins using **common random numbers** (same demand serie
 - **Lower margins** reduce overstock loss, but expose to many stockouts with escalating dissatisfaction.
 - The **best margin** minimises total loss — found empirically by sweep (no closed-form solution due to streak term).
 - **Customer dissatisfaction** (streak multiplier) is key: repeated stockouts are much more costly than isolated ones.
+- **Historical vs forecast visualization** clarifies where demand surprises occur and when you're entering the forecast window (in both simulated and real data modes).
 
 ## Interpretation
 

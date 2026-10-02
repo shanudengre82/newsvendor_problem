@@ -8,6 +8,7 @@ import io
 from newsvendor.model import simulate_demand, simulate, inventory_from_margin
 from newsvendor.sweep import sweep_margins, best_margin, recommend
 from newsvendor.data import load_daily_csv, DataFormatError, template_csv
+from newsvendor.overview import simulated_overview, imported_overview, overview_figure
 
 
 # Page config
@@ -46,10 +47,14 @@ if data_source == "Simulated":
     )
     days = st.sidebar.slider("Days to simulate", min_value=50, max_value=365, value=100, step=10)
     seed = st.sidebar.number_input("Random seed", value=42, step=1)
+    horizon = st.sidebar.slider("Forecast horizon (days)", min_value=0, max_value=60, value=14, step=1)
 
     # Generate demand
     demand = simulate_demand(mu=mu, sigma=sigma, days=days, seed=seed)
     baseline = np.full(days, mu)
+
+    # Generate overview frame for simulated mode
+    overview_df = simulated_overview(demand, mu, horizon)
 
 else:  # Import CSV
     st.sidebar.header("📤 Upload Data")
@@ -78,6 +83,9 @@ else:  # Import CSV
             # Mode selector for real data
             mode = st.sidebar.radio("Margin unit:", ["units", "percent"],
                                    format_func=lambda x: "Units (forecast + m)" if x == "units" else "Percent (forecast × (1 + m%))")
+
+            # Generate overview frame for imported mode
+            overview_df = imported_overview(history, future)
         except DataFormatError as e:
             st.sidebar.error(f"❌ Invalid CSV format:\n\n{str(e)}")
             st.stop()
@@ -128,6 +136,14 @@ tab1, tab2 = st.tabs(["📊 One Margin", "🎯 Find Best Margin"])
 
 with tab1:
     st.header("Single Margin Analysis")
+
+    # Historical vs forecast overview
+    st.subheader("Historical vs Forecast")
+    x_title = "Day" if data_source == "Simulated" else "Date"
+    fig_overview = overview_figure(overview_df, x_title)
+    st.plotly_chart(fig_overview, width="stretch")
+
+    st.divider()
 
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -200,7 +216,7 @@ with tab1:
         hovermode="x unified",
         height=400
     )
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width="stretch")
 
     # Chart 2: Streak duration
     fig2 = go.Figure()
@@ -217,7 +233,7 @@ with tab1:
         height=350,
         hovermode="x unified"
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
     # Chart 3: Loss breakdown by day
     fig3 = go.Figure()
@@ -241,7 +257,7 @@ with tab1:
         height=350,
         hovermode="x unified"
     )
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 
 with tab2:
     st.header("Margin Optimisation")
@@ -343,7 +359,7 @@ with tab2:
         hovermode="x unified",
         height=400
     )
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width="stretch")
 
     # Chart 2: Stockout rate vs margin
     fig2 = go.Figure()
@@ -361,7 +377,7 @@ with tab2:
         hovermode="x unified",
         height=350
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
     # Chart 3: Max streak vs margin
     fig3 = go.Figure()
@@ -379,7 +395,7 @@ with tab2:
         hovermode="x unified",
         height=350
     )
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 
     # Recommended inventory section (only for imported data with future rows)
     if data_source == "Import CSV" and future is not None and len(future) > 0:
@@ -391,7 +407,7 @@ with tab2:
         rec_df = recommend(future_copy, baseline_col="forecast", margin=best_margin_value, mode=mode)
 
         # Display as table
-        st.dataframe(rec_df, use_container_width=True)
+        st.dataframe(rec_df, width="stretch")
 
         # Chart: Forecast vs Recommended
         fig_rec = go.Figure()
@@ -416,7 +432,7 @@ with tab2:
             hovermode="x unified",
             height=350
         )
-        st.plotly_chart(fig_rec, use_container_width=True)
+        st.plotly_chart(fig_rec, width="stretch")
 
         # Download CSV
         csv_buffer = io.StringIO()

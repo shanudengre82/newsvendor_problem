@@ -81,7 +81,7 @@ pytest tests/ -v
 
 Expected output:
 ```
-18 passed in 0.29s ✓
+59 passed in 0.42s ✓
 ```
 
 ## 5. Example Scenario
@@ -99,18 +99,21 @@ Expected output:
 - Overstock cost (disposal): **c_over = $0.40** per paper left
 
 **Experiment:**
-1. Open Tab 2: Find Best Margin.
-2. Sweep 0–30 margin by 1.
-3. The algorithm finds that **margin ≈ 8–10 units** minimizes total loss.
-4. This means you should stock about **58–60 papers** daily.
+1. Set μ = 50, σ = 10, c_under = $1.00, c_over = $0.40.
+2. Open Tab 2: Find Best Margin.
+3. Sweep 0–30 margin by 1.
+4. The algorithm finds that **margin ≈ 8–10 units** minimizes total loss.
+5. This means you should stock about **58–60 papers** daily.
 
 **Why not stock 50 (no margin)?**
-- Too many stockout days → customer dissatisfaction multiplies losses.
+- Too many stockout days → customer dissatisfaction compounds via the streak multiplier.
+- Repeated stockouts destroy customer loyalty and cost far more than isolated ones.
 
 **Why not stock 80 (huge margin)?**
-- Too much leftover stock → overstock losses dominate.
+- Too much leftover stock → overstock losses dominate (disposal cost).
+- You're paying to hold and discard papers that won't sell.
 
-**The balance is ~58–60.**
+**The balance is ~58–60.** The app shows exactly where your data lands.
 
 ## 6. Next Steps
 

@@ -24,6 +24,9 @@ A fully-functional Streamlit app for visualizing and optimizing the **Newsvendor
 **Streamlit app with two tabs:**
 
 1. **One Margin Tab**:
+   - **Chart: Historical vs Forecast** (top) — shows actual demand and forecast baseline:
+     - Simulated mode: demand history + flat μ line extended N days (horizon slider).
+     - CSV mode: actual demand + forecast across history and future, with divider at forecast window.
    - Summary metrics (total loss, stockout loss, overstock loss, stockout rate).
    - Chart: Demand vs inventory over time (stockout days highlighted in red).
    - Chart: Stockout streak duration (shows dissatisfaction multiplier n).
