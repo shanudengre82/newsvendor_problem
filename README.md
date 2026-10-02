@@ -27,6 +27,37 @@ streamlit run app.py
 
 Then open http://localhost:8501 in your browser.
 
+## Data Format
+
+The app supports two modes:
+
+### Simulated Mode
+- Generate synthetic demand from a normal distribution
+- Adjust mean (μ), std dev (σ), days, and random seed
+- Useful for exploration and teaching
+
+### Import CSV Mode
+- Upload real historical and forecast data
+- **Required format**: CSV with columns `date, actual, forecast` (lowercase, in that order)
+- **date**: ISO `YYYY-MM-DD`, sorted ascending, daily frequency, no gaps or duplicates
+- **actual**: Non-negative number or blank. Blank values mark the future window (forecast-only)
+- **forecast**: Non-negative number, required on every row
+- **Minimum requirement**: At least 30 historical rows (with an `actual` value)
+
+**Example CSV:**
+```
+date,actual,forecast
+2026-01-01,10,12
+2026-01-02,11,13
+2026-01-03,12,14
+2026-01-04,,15
+2026-01-05,,16
+```
+- Rows 1–3: History (training data)
+- Rows 4–5: Future (forecast-only, for recommendations)
+
+The app will validate your CSV and show clear error messages if the format is incorrect.
+
 ## Running Tests
 
 ```bash
@@ -41,10 +72,12 @@ Or use the convenience script:
 
 ## Project Structure
 
-- `newsvendor/model.py` — Core simulation: demand generation, inventory simulation with streak logic.
-- `newsvendor/sweep.py` — Margin sweep and best-margin optimisation.
-- `app.py` — Streamlit application with interactive visualisations.
-- `tests/` — Test suite (TDD).
+- `newsvendor/model.py` — Core simulation: demand generation, per-day inventory, streak loss calculation
+- `newsvendor/data.py` — CSV loading and validation (daily format only)
+- `newsvendor/sweep.py` — Margin sweep, best-margin optimisation, future recommendations
+- `app.py` — Streamlit UI: simulated and import modes, margin units vs percent
+- `sample_data/sample_daily.csv` — Example data (120 days history + 14 days future)
+- `tests/` — 47 tests covering all modules (TDD)
 
 ## How It Works
 
