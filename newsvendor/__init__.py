@@ -1,0 +1,1 @@
+"""Newsvendor problem visualisation library."""
