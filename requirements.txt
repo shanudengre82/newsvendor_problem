@@ -1,6 +1,5 @@
-streamlit==1.41.0
-plotly==5.24.1
-numpy==2.1.0
-pandas==2.0.3
-scipy==1.11.4
-pytest==8.3.4
+streamlit
+plotly
+numpy
+pandas
+pytest
