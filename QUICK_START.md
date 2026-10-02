@@ -99,11 +99,11 @@ Expected output:
 - Overstock cost (disposal): **c_over = $0.40** per paper left
 
 **Experiment:**
-1. Set μ = 50, σ = 10, c_under = $1.00, c_over = $0.40.
+1. Set μ = 50, σ = 10, c_under = $1.00, c_over = $0.40, Seasonality = 20% (default).
 2. Open Tab 2: Find Best Margin.
 3. Sweep 0–30 margin by 1.
-4. The algorithm finds that **margin ≈ 8–10 units** minimizes total loss.
-5. This means you should stock about **58–60 papers** daily.
+4. The algorithm finds that **margin = 6 units** minimizes total loss ($453.40).
+5. This means you should stock about **56 papers** daily (forecast ≈ 50 + margin 6).
 
 **Why not stock 50 (no margin)?**
 - Too many stockout days → customer dissatisfaction compounds via the streak multiplier.

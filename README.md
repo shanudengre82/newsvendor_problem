@@ -116,21 +116,39 @@ Or use the convenience script:
 
 ### Demand Model
 
-Daily demand is generated from a normal distribution:
+**Forecast (Expected Demand):**
+A seasonal sinusoidal pattern represents expected demand with weekly cycles:
 ```
-demand ~ N(μ, σ), clipped at 0, rounded to integers
+expected_t = μ · (1 + a·sin(2πt/7))
+```
+where `a` is the seasonality amplitude (0–50% of μ, default 20%).
+
+**Actual Demand:**
+Daily demand is generated with forecast error (noise):
+```
+demand_t = expected_t + noise ~ N(0, σ), clipped at 0, rounded to integers
+```
+
+**Forecast Line:**
+The forecast shown in plots is the rounded expected demand:
+```
+forecast_t = round(expected_t)
 ```
 
 ### Inventory & Loss
 
 Each day:
-1. `inventory = mean_demand + margin`
+1. `inventory = forecast + margin` (or `forecast × (1 + margin%)` in percent mode)
 2. `shortfall = max(0, demand - inventory)`
 3. `excess = max(0, inventory - demand)`
 4. Update streak: if `shortfall > 0`, increment; else reset to 0.
 5. **Stockout loss** = `streak × shortfall × c_under` (streak multiplier captures dissatisfaction)
 6. **Overstock loss** = `excess × c_over`
 7. **Total loss** = stockout + overstock loss
+
+**Stockout and Waste Rules:**
+- **Stockout** occurs only when `actual > stock` (forecast below actual demand)
+- **Waste** (excess inventory) occurs when `stock > actual` (forecast above actual demand)
 
 ### Margin Optimisation
 
@@ -145,15 +163,19 @@ Sweep across multiple margins using **common random numbers** (same demand serie
 - **Lower margins** reduce overstock loss, but expose to many stockouts with escalating dissatisfaction.
 - The **best margin** minimises total loss — found empirically by sweep (no closed-form solution due to streak term).
 - **Customer dissatisfaction** (streak multiplier) is key: repeated stockouts are much more costly than isolated ones.
-- **Historical vs forecast visualization** clarifies where demand surprises occur and when you're entering the forecast window (in both simulated and real data modes).
+- **Seasonality** in the forecast allows realistic patterns where demand varies predictably (e.g., weekly cycles).
+- **Forecast accuracy** is paramount: if forecast is consistently below actual, stockouts dominate; if consistently above, waste dominates.
+- **Historical vs forecast visualization** shows stockout days (red markers) and waste areas (green shading), making the margin's impact visible.
 
 ## Interpretation
 
 Use the app to:
 1. Understand how demand variability (σ) affects optimal margins.
-2. See the trade-off between underage cost (c_under) and overage cost (c_over).
-3. Visualise why **a buffer above forecast demand reduces losses**.
-4. Experiment with different cost ratios to find realistic optima.
+2. Adjust the seasonality slider to model realistic demand patterns (e.g., weekly variation).
+3. See the trade-off between underage cost (c_under) and overage cost (c_over).
+4. Visualise in Plot 1 how stockouts (red 'x' markers) and waste (green shading) vary with margin.
+5. Use Plot 2 (Find Best Margin) to find the margin that minimises total loss given your costs and demand distribution.
+6. Experiment with different cost ratios to find realistic optima.
 
 ## Licence
 
