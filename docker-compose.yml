@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: newsvendor-app
+    ports:
+      - "127.0.0.1:8501:8501"
+    restart: unless-stopped
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_LOGGER_LEVEL=info
+
+  tests:
+    build: .
+    container_name: newsvendor-tests
+    command: python -m pytest tests/ -v
+    profiles:
+      - test
+    environment:
+      - PYTHONUNBUFFERED=1

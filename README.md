@@ -21,11 +21,43 @@ pip install -r requirements.txt
 
 ## Running the App
 
+### Local (without Docker)
+
 ```bash
 streamlit run app.py
 ```
 
 Then open http://localhost:8501 in your browser.
+
+### Docker Compose
+
+Run the entire app in a container:
+
+```bash
+docker compose up --build
+```
+
+The app will be available at http://localhost:8501. Press Ctrl+C to stop.
+
+**Additional Docker commands:**
+
+```bash
+# Stop and clean up
+docker compose down
+
+# Run tests in a container
+docker compose run --rm tests
+
+# View logs
+docker compose logs -f app
+
+# Expose the app on your network (edit docker-compose.yml and change ports)
+# From: "127.0.0.1:8501:8501"
+# To:   "0.0.0.0:8501:8501"
+# Then run: docker compose up --build
+```
+
+If exposing on the network, restrict access via a firewall or reverse proxy.
 
 ## Data Format
 
@@ -122,3 +154,7 @@ Use the app to:
 2. See the trade-off between underage cost (c_under) and overage cost (c_over).
 3. Visualise why **a buffer above forecast demand reduces losses**.
 4. Experiment with different cost ratios to find realistic optima.
+
+## Licence
+
+This project is licenced under the MIT Licence. See [LICENSE](LICENSE) for details.
